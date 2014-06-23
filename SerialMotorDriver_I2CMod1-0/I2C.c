@@ -35,14 +35,16 @@ void TWACK(void){
  */
 void TWNACK(void){
     TWCR = (1<<TWEN)|                           //Enable TWI hardware
-    (1<<TWINT)|                                 //Clear TWI Interrupt flag
-    (1<<TWIE)|                                  //Enable TWI interrupt
-    (0<<TWEA);                                  //Send NACK on next transmission
+           (1<<TWINT)|                                 //Clear TWI Interrupt flag
+           (1<<TWIE)|                                  //Enable TWI interrupt
+           (0<<TWEA);                                  //Send NACK on next transmission
 }
 
 /* Reset TWI for new transmission */
 void TWRESET(void){
     TWCR = (1<<TWEN)|                           //Enable TWI hardware
-    (1<<TWEA)|                                  //Send ACK when addressed with own address
-    (1<<TWIE);                                  //Enable TWI interrupt
+           (1<<TWINT)|                          //Clear TWI Interrupt flag
+           (1<<TWEA)|                                  //Send ACK when addressed with own address
+           (1<<TWSTO)|                          //Release I2C bus
+           (1<<TWIE);                                  //Enable TWI interrupt
 }

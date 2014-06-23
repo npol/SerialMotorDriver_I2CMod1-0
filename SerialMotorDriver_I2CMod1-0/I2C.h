@@ -15,4 +15,3 @@ void init_TWI(void);
 void TWACK(void);
 void TWNACK(void);
 void TWRESET(void);
-

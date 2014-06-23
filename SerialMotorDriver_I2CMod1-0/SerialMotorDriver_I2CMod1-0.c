@@ -1,6 +1,8 @@
 /*
  * SerialMotorDriver_I2CMod1_0.c
  *
+ *
+ *
  * Created: 6/3/2014 5:49:55 PM
  *  Author: Nishant Pol
  */
@@ -14,9 +16,17 @@ static inline void M2_Forward(void);
 static inline void M2_Reverse(void);
 static inline void M1_Speed(uint8_t speed);
 static inline void M2_Speed(uint8_t speed);
+static inline void M1_Stop(void);
+static inline void M2_Stop(void);
+
 
 int main(void)
 {
+    DDRC |= 1<<LED2;
+    DDRC |= 1<<LED3;
+    init_TWI();
+    motor_init();
+    sei();
     while(1)
     {
         if(new_cmd_flag){
@@ -47,9 +57,12 @@ ISR(TWI_vect){
             if(cmd_buf_ptr == 0)                    //If this is the start of a command, get command length in # of bytes
                 get_cmd_size(cmd_buf[cmd_buf_ptr]); //Put command size into global cmd_size
             cmd_buf_ptr++;
-            if(cmd_buf_ptr == cmd_size)
+            if(cmd_buf_ptr == cmd_size){
                 new_cmd_flag = 1;                   //If command is complete, tell main() to process command
-            TWACK();
+                TWNACK();
+            } else {
+                TWACK();
+            }
             break;
 
         case 0x88:                                  //write mode transfer data received, returned NACK
@@ -75,8 +88,9 @@ ISR(TWI_vect){
             TWACK();
             break;
 
+        case 0xC8:                              //Master ACK'd last byte sent
         case 0xC0:                              //Master NACK'd last data byte sent. Slave must reset for new transmission
-            TWRESET();
+            TWACK();
             break;
 
         default:                                //Error cases
@@ -86,27 +100,32 @@ ISR(TWI_vect){
 }
 
 ISR(ADC_vect){
-    if(ADMUX == I_M1){
+    if((ADMUX & 0xf) == I_M1){
         currentIm1 = ADCH;                      //Load 8MSB into current global
-        ADMUX = I_M2;                           //Switch ADC mux to other motor
-    } else if(ADMUX == I_M2){
+        ADMUX &= 0xf0;
+        ADMUX |= I_M2;                         //Switch ADC mux to other motor
+    } else if((ADMUX & 0xf) == I_M2){
         currentIm2 = ADCH;
-        ADMUX = I_M1;
+        ADMUX &= 0xf0;
+        ADMUX |= I_M1;
     }
-    PORTC &= ~LED2;                             //Remove both lines if using LEDs for debugging
-    PORTC &= ~LED3;
+    PORTC &= ~(1<<LED2);                             //Remove both lines if using LEDs for debugging
+    PORTC &= ~(1<<LED3);
     if(currentIm1 > CURRENT_THRESHOLD){
-        PORTC |= LED2;                          //Indicate overcurrent condition
+        PORTC |= 1<<LED2;                          //Indicate overcurrent condition
         M1_Speed(0);
     }
     if(currentIm2 > CURRENT_THRESHOLD){
-        PORTC |= LED3;
+        PORTC |= 1<<LED3;
         M2_Speed(0);
     }
+    ADCSRA |= (1<<ADSC);        //Start ADC conversion
 }
 
 void get_cmd_size(uint8_t cmd){
     switch(cmd){
+        case 0x00:
+            cmd_size = 1;
         case 'e':
             cmd_size = 1;
             break;
@@ -122,7 +141,7 @@ void get_cmd_size(uint8_t cmd){
             break;
         case 'l':
         case 'L':
-            cmd_size = 2;
+            cmd_size = 3;
             break;
         default:
             cmd_size = 0;
@@ -131,10 +150,16 @@ void get_cmd_size(uint8_t cmd){
     return;
 }
 
-void process_cmd(uint8_t *cmd){
+void process_cmd(volatile uint8_t *cmd){
+    if(cmd[0] == 0){
+        new_cmd_flag = 0;
+        return;
+    }
     uint8_t dir;
     uint8_t speed;
     switch(cmd[0]){
+        case 0x00:
+            break;
         case 'e':
             out_buf[0] = 'e';
             out_buf[1] = 'c';
@@ -151,47 +176,55 @@ void process_cmd(uint8_t *cmd){
                 M1_Reverse();
             } else
                 load_error_code();
-            (void)speed;
+            if(speed == 0){
+                M1_Speed(0);
+                M1_Stop();
+            } else
+                M1_Speed(speed);
             break;
 
         case '2':                               //Assign speed and direction of motor 2
             dir = cmd[1];
             speed = cmd[2];
             if(dir == 'f' || dir == 'F'){
-                M1_Forward();
+                M2_Forward();
                 } else if(dir == 'r' || dir == 'R'){
-                M1_Reverse();
+                M2_Reverse();
             } else
                 load_error_code();
+            if(speed == 0){
+                M2_Speed(0);
+                M2_Stop();
+            }
+            M2_Speed(speed);
             break;
         case 'i':                               //Get current of motors
         case 'I':                               //Fallthrough on purpose
-            out_buf[0] = 0x33;                  //Motor 1 current
-            out_buf[1] = 0x55;                  //Motor 2 current
+            out_buf[0] = currentIm1;                  //Motor 1 current
+            out_buf[1] = currentIm2;                  //Motor 2 current
             break;
         case 'l':                               //Turn on or off status LEDs
         case 'L':
             if(cmd[1] == '2'){
                 if(cmd[2] == '1' || cmd[2] == 1)
-                    PORTC |= LED2;
+                    PORTC |= 1<<LED2;
                 else if(cmd[2] == '0' || cmd[2] == 0)
-                    PORTC &= ~LED2;
+                    PORTC &= ~(1<<LED2);
                 else
                     load_error_code();
             } else if(cmd[1] == '3'){
                 if(cmd[2] == '1' || cmd[2] == 1)
-                    PORTC |= LED3;
-                else if(cmd[2] == '2' || cmd[2] == 0)
-                    PORTC &= ~LED3;
+                    PORTC |= 1<<LED3;
+                else if(cmd[2] == '0' || cmd[2] == 0)
+                    PORTC &= ~(1<<LED3);
             }
             break;
 
         default:
             load_error_code();
             break;
-
-
     }
+    new_cmd_flag = 0;
 }
 
 void load_error_code(void){
@@ -207,20 +240,24 @@ static inline void motor_init(void){
     DDRC |= (1<<LED2)|(1<<LED3);                //Make LED pins outputs
     DDRD |= (1<<M1_P)|(1<<M1_N)|                //Make motor direction pins outputs
             (1<<M2_P)|(1<<M2_N);
-    
+
     /* Initialize timer for motor pwm */
-    TCCR1A = (1<<COM1A1)|(1<<COM1B1)|(1<<WGM10)|(1<<WGM11);
+    TCCR1A = (1<<COM1A1)|(1<<COM1B1)|(1<<WGM10)|(0<<WGM11);//8-bit mode
     TCCR1B = (1<<WGM12);
     OCR1A = 0;
     OCR1B = 0;
     TCCR1B |= (1<<CS12);
-    
-    /* Initialize ADC for current sensing */
-    ADMUX = I_M1;
-    ADCSRA = (1<<ADEN)|(1<<ADATE)|(1<<ADIE)|(1<<ADPS2)|(1<<ADPS1)|(1<<ADPS0);
-    ADCSRA |= (1<<ADSC);
 
-    DDRC = 0xff;
+    /* Initialize ADC for current sensing */
+    ADMUX = (1<<ADLAR)|         //Left adjust to get 8MSB into ADCH register
+            (1<<REFS0)|         //Avcc as reference
+            (I_M1);             //Set mux to M1
+    ADCSRA = (1<<ADEN)|         //Turn on ADC
+             (1<<ADIE)|         //ADC Interrupt enable
+             (1<<ADPS2)|        //Set prescaler to 16
+             (1<<ADPS1)|
+             (1<<ADPS0);
+    ADCSRA |= (1<<ADSC);        //Start ADC conversion
 }
 
 /* Drive motor 1 forward by making M1_P high and M1_N low */
@@ -251,9 +288,21 @@ static inline void M2_Reverse(void){
 }
 
 static inline void M1_Speed(uint8_t speed){
-    OCR1A = SPEED_UNIT*speed;
+    //OCR1A = SPEED_UNIT*speed;
+    OCR1A = speed;
 }
 
 static inline void M2_Speed(uint8_t speed){
-    OCR1B = SPEED_UNIT*speed;
+    //OCR1B = SPEED_UNIT*speed;
+    OCR1B = speed;
+}
+
+static inline void M1_Stop(void){
+    PORTD &= ~(1<<M1_P);
+    PORTD &= ~(1<<M1_N);
+}
+
+static inline void M2_Stop(void){
+    PORTD &= ~(1<<M2_P);
+    PORTD &= ~(1<<M2_N);
 }

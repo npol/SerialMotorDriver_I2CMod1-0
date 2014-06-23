@@ -31,34 +31,27 @@
 
 /* I2C Interface */
 #define MAX_CMD_SIZE 8
-uint8_t cmd_buf[MAX_CMD_SIZE];
-uint8_t cmd_buf_ptr = 0;
-uint8_t cmd_size = 0;
-uint8_t new_cmd_flag = 0;
+volatile uint8_t cmd_buf[MAX_CMD_SIZE];
+volatile uint8_t cmd_buf_ptr = 0;
+volatile uint8_t cmd_size = 0;
+volatile uint8_t new_cmd_flag = 0;
 
 #define OUT_BUF_SIZE 8
-uint8_t out_buf[OUT_BUF_SIZE];
-uint8_t out_buf_ptr = 0;
+volatile uint8_t out_buf[OUT_BUF_SIZE];
+volatile uint8_t out_buf_ptr = 0;
 
-
-
-
-
-#define SPEED_UNIT 114
+#define SPEED_UNIT 0x100
 #define AVERAGE 16
 
-#define CURRENT_THRESHOLD 150               //I motor threshold for 1.5A
+#define CURRENT_THRESHOLD 0x80               //I motor threshold for 1.5A
 
 #define I_M1 PINC0
 #define I_M2 PINC1
 
-uint8_t currentIm1 = 0;
-uint8_t currentIm2 = 0;
+volatile uint8_t currentIm1 = 0;
+volatile uint8_t currentIm2 = 0;
 
 void get_cmd_size(uint8_t cmd);
-void process_cmd(uint8_t *cmd);
+void process_cmd(volatile uint8_t *cmd);
 void load_error_code(void);
-
-
-
 
